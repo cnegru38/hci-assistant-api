@@ -53,6 +53,7 @@ builder.Services.AddSingleton<IAppConfigurationsService>(
 builder.Services.AddSingleton<IParametricFunctions, ParametricFunctions>();
 
 // Add services to the container.
+builder.Services.AddScoped<IAIAssistantService, AIAssistantService>();
 
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
