@@ -1,0 +1,61 @@
+#include <LiquidCrystal.h>
+
+LiquidCrystal lcd(    7,  6,  2,  3,  4,  5);
+
+const int sensorPin = A0;
+const int ledRosu   = 12;
+const int ledVerde  = 13;
+const int buzzerPin = 8;
+const int fan = 9;
+int       pragGaz   = 400;
+int       valoareGaz;
+
+void setup() {
+  
+  lcd.begin(16, 2);
+
+  
+  pinMode(ledRosu, OUTPUT);
+  pinMode(ledVerde, OUTPUT);
+  pinMode(buzzerPin, OUTPUT);
+  pinMode(fan,OUTPUT);
+
+  
+  digitalWrite(ledVerde, HIGH);
+  digitalWrite(ledRosu, LOW);
+  digitalWrite(buzzerPin, LOW);
+  digitalWrite(fan,LOW);
+
+  
+  lcd.clear();
+  lcd.print("Init sensor...");
+  delay(1000);
+}
+
+void loop() {
+ 
+  valoareGaz = analogRead(sensorPin);
+ 
+  if (valoareGaz > pragGaz) {
+    digitalWrite(ledVerde, LOW);
+    digitalWrite(ledRosu, HIGH);
+    digitalWrite(buzzerPin, HIGH);
+    digitalWrite(fan,HIGH);
+  } else {
+    digitalWrite(ledVerde, HIGH);
+    digitalWrite(ledRosu, LOW);
+    digitalWrite(buzzerPin, LOW);
+    digitalWrite(fan,LOW);
+  }
+
+  
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Gaz: ");
+  lcd.print(valoareGaz);
+  lcd.setCursor(0, 1);
+  lcd.print("Prag: ");
+  lcd.print(pragGaz);
+
+  delay(500);
+}
