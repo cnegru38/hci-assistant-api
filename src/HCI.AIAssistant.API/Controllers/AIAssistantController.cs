@@ -1,12 +1,11 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.Devices;
+using Newtonsoft.Json;
+using System.Text;
 
+using HCI.AIAssistant.API.Models.DTOs;
 using HCI.AIAssistant.API.Models.DTOs.AIAssistantController;
 using HCI.AIAssistant.API.Services;
-using HCI.AIAssistant.API.Models.DTOs;
-using Newtonsoft.Json;
-using Microsoft.Azure.Devices;
-using System.Text;
-using System.Net.Http.Json;
 
 namespace HCI.AIAssistant.API.Controllers;
 
@@ -16,57 +15,72 @@ public class AIAssistantController : ControllerBase
 {
     private readonly ISecretsService _secretsService;
     private readonly IAppConfigurationsService _appConfigurationsService;
-    private readonly IAIAssistantService _aIAssistantService;
     private readonly IParametricFunctions _parametricFunctions;
 
     public AIAssistantController(
         ISecretsService secretsService,
         IAppConfigurationsService appConfigurationsService,
-        IAIAssistantService aIAssistantService,
         IParametricFunctions parametricFunctions
     )
     {
         _secretsService = secretsService;
         _appConfigurationsService = appConfigurationsService;
-        _aIAssistantService = aIAssistantService;
         _parametricFunctions = parametricFunctions;
     }
 
+    /// <summary>
+    /// Receives gas telemetry and returns Safe / Danger.
+    /// Also sends the result back to the ESP32 via IoT Hub.
+    /// </summary>
     [HttpPost("message")]
     [ProducesResponseType(typeof(AIAssistantControllerPostMessageResponseDTO), 200)]
     [ProducesResponseType(typeof(ErrorResponseDTO), 400)]
-    public async Task<ActionResult> PostMessage([FromBody] AIAssistantControllerPostMessageRequestDTO request)
+    public async Task<ActionResult> PostMessage(
+        [FromBody] AIAssistantControllerPostMessageRequestDTO request)
     {
+        // 🔹 Validate request
         if (!_parametricFunctions.ObjectExistsAndHasNoNullPublicProperties(request))
         {
-            return BadRequest(
-                new ErrorResponseDTO()
-                {
-                    TextErrorTitle = "AtLeastOneNullParameter",
-                    TextErrorMessage = "Some parameters are null/missing.",
-                    TextErrorTrace = _parametricFunctions.GetCallerTrace()
-                }
-            );
+            return BadRequest(new ErrorResponseDTO
+            {
+                TextErrorTitle = "AtLeastOneNullParameter",
+                TextErrorMessage = "Some parameters are null or missing.",
+                TextErrorTrace = _parametricFunctions.GetCallerTrace()
+            });
         }
 
-        string messageToSendToAssistant = "Instruction: " + _appConfigurationsService.Instruction + "\nMessage: " + request.TextMessage;
-#pragma warning disable CS8604
-        string textMessageResponse = await _aIAssistantService.SendMessageAndGetResponseAsync(messageToSendToAssistant);
-#pragma warning restore CS8604
+        // 🔹 Extract gas value (THIS comes from Arduino)
+        double gas = request.Gas;
 
-        AIAssistantControllerPostMessageResponseDTO response = new()
+        // 🔹 Apply deterministic safety logic
+        string textMessage =
+            gas <= 400 ? "Safe" : "Danger";
+
+        // 🔹 Build response
+        var response = new AIAssistantControllerPostMessageResponseDTO
         {
-            TextMessage = textMessageResponse
+            TextMessage = textMessage
         };
 
-        string? ioTHubConnectionString = _secretsService?.IOTHubSecrets?.ConnectionString;
-        if (ioTHubConnectionString != null)
-        {
-            var serviceClientForIoTHub = ServiceClient.CreateFromConnectionString(ioTHubConnectionString);
-            var seralizedMessage = JsonConvert.SerializeObject(textMessageResponse);
+        // 🔹 Send result back to ESP32 (Cloud-to-Device)
+        string? ioTHubConnectionString =
+            _secretsService?.IOTHubSecrets?.ConnectionString;
 
-            var ioTMessage = new Message(Encoding.UTF8.GetBytes(seralizedMessage));
-            await serviceClientForIoTHub.SendAsync(_appConfigurationsService.IoTDeviceName, ioTMessage);
+        if (!string.IsNullOrWhiteSpace(ioTHubConnectionString))
+        {
+            var serviceClient =
+                ServiceClient.CreateFromConnectionString(ioTHubConnectionString);
+
+            var serializedMessage =
+                JsonConvert.SerializeObject(response);
+
+            var ioTMessage =
+                new Message(Encoding.UTF8.GetBytes(serializedMessage));
+
+            await serviceClient.SendAsync(
+                _appConfigurationsService.IoTDeviceName,
+                ioTMessage
+            );
         }
 
         return Ok(response);
